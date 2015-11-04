@@ -1,12 +1,14 @@
 package ee.moog.walletdemo;
 
-import ee.moog.walletdemo.dbaccess.DBReader;
-import ee.moog.walletdemo.dbaccess.DBWriter;
-import ee.moog.walletdemo.internalcommands.BalanceCommand;
+import ee.moog.walletdemo.dbaccess.DBBalanceReader;
+import ee.moog.walletdemo.dbaccess.DBBalanceWriter;
+import ee.moog.walletdemo.internalcommands.BalanceQuery;
+import ee.moog.walletdemo.internalcommands.BalanceResponse;
 import ee.moog.walletdemo.internalcommands.Command;
-import ee.moog.walletdemo.internalcommands.ConfigChangeCommand;
+import ee.moog.walletdemo.internalcommands.UpdateBlacklist;
+import ee.moog.walletdemo.parameters.HardcodedParameters;
+import ee.moog.walletdemo.pojo.BalanceInfo;
 
-import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
@@ -15,8 +17,8 @@ import java.util.concurrent.TimeUnit;
  *
  */
 public class WalletServer implements  Runnable {
-    private DBReader reader;
-    private DBWriter writer;
+    private DBBalanceReader reader;
+    private DBBalanceWriter writer;
     private Logger l;
 
     private LinkedBlockingQueue<Command> requestQueue;
@@ -45,16 +47,16 @@ public class WalletServer implements  Runnable {
                     handleReaderResponse( readerResponse );
                 }
 
-                Command command = requestQueue.poll( 100, TimeUnit.MILLISECONDS );
+                Command command = requestQueue.poll(HardcodedParameters.REGULAR_ACTIONS_DELAY, TimeUnit.MILLISECONDS );
 
                 checkRegularActions();
 
                 if( command != null ) {
-                    if( command instanceof BalanceCommand ) {
-                        handleIncomingRequest((BalanceCommand) command);
+                    if( command instanceof BalanceQuery) {
+                        handleIncomingRequest((BalanceQuery) command);
                     }
-                    else if( command instanceof ConfigChangeCommand ) {
-                            handleConfigurationChange((ConfigChangeCommand) command);
+                    else if( command instanceof UpdateBlacklist) {
+                            handleBlacklistChange((UpdateBlacklist) command);
                         }
                     else { // stop
                         handleStop();
@@ -63,8 +65,7 @@ public class WalletServer implements  Runnable {
 
                 }
             } catch (InterruptedException e) {
-                e.printStackTrace();
-                return;
+                Panic.panic( e );
             }
         }
     }
@@ -77,11 +78,20 @@ public class WalletServer implements  Runnable {
 
     }
 
-    private void handleIncomingRequest( BalanceCommand incomingRequest ) {
+    private void handleIncomingRequest( BalanceQuery incomingRequest ) {
+        BalanceResponse response = null;
+        // check if we have lately processed this request
 
+        // check if database read is in progress for this user
+
+        // get info from internal database
+
+        // query from db
+        // or
+        // send response
     }
 
-    private void handleConfigurationChange( ConfigChangeCommand configChange ) {
+    private void handleBlacklistChange( UpdateBlacklist blaclistChange ) {
 
     }
 

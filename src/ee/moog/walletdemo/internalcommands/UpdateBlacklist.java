@@ -3,5 +3,5 @@ package ee.moog.walletdemo.internalcommands;
 /**
  *
  */
-public class ConfigChangeCommand extends Command {
+public class UpdateBlacklist extends Command {
 }

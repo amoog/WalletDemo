@@ -1,4 +1,4 @@
-package ee.moog.walletdemo;
+package ee.moog.walletdemo.pojo;
 
 /**
  *

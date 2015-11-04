@@ -1,7 +1,8 @@
 package ee.moog.walletdemo.dbaccess;
 
-import ee.moog.walletdemo.BalanceInfo;
-import ee.moog.walletdemo.internalcommands.BalanceCommand;
+import ee.moog.walletdemo.pojo.BalanceInfo;
+import ee.moog.walletdemo.Panic;
+import ee.moog.walletdemo.internalcommands.BalanceDbQuery;
 import ee.moog.walletdemo.internalcommands.Command;
 import ee.moog.walletdemo.internalcommands.StopCommand;
 
@@ -14,7 +15,7 @@ import java.util.concurrent.LinkedBlockingQueue;
 /**
  *
  */
-public class DBReader implements Runnable {
+public class DBBalanceReader implements Runnable {
     private DBConfig dbConfig;
     private Connection conn;
 
@@ -24,7 +25,7 @@ public class DBReader implements Runnable {
     private LinkedBlockingQueue<Command> requestQueue;
     private ConcurrentLinkedQueue<BalanceInfo> resultQueue;
 
-    public DBReader( DBConfig config ) {
+    public DBBalanceReader(DBConfig config) {
         dbConfig = config;
 
         requestQueue = new LinkedBlockingQueue<>();
@@ -59,26 +60,23 @@ public class DBReader implements Runnable {
         }
     }
 
-
     @Override
     public void run() {
         while( true ) {
             try {
                 Command command = requestQueue.take();
-                if( command instanceof BalanceCommand ) {
-                    BalanceInfo result = readBalanceInfo( ((BalanceCommand) command).getUsername() );
+                if( command instanceof BalanceDbQuery) {
+                    BalanceInfo result = readBalanceInfo( ((BalanceDbQuery) command).getUserName() );
                     resultQueue.offer(result);
                 }
                 else
                     if( command instanceof StopCommand )
                         break;
                     else
-                        ; // add panic here?
+                        Panic.panic( null );
 
-            } catch (InterruptedException e) {
-                e.printStackTrace();
-            } catch (SQLException e) {
-                e.printStackTrace();
+            } catch (InterruptedException | SQLException e) {
+                Panic.panic( e );
             }
         }
     }

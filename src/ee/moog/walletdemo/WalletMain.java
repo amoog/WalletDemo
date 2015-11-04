@@ -1,8 +1,9 @@
 package ee.moog.walletdemo;
 
 import ee.moog.walletdemo.dbaccess.DBConfig;
-import ee.moog.walletdemo.dbaccess.DBReader;
+import ee.moog.walletdemo.dbaccess.DBBalanceReader;
 import ee.moog.walletdemo.parameters.ConstantParameters;
+
 
 /**
  *
@@ -14,8 +15,9 @@ public class WalletMain {
         ConstantParameters.init("");
         DBConfig dbConfig = new DBConfig();
 
-        DBReader reader = new DBReader( dbConfig );
+        DBBalanceReader reader = new DBBalanceReader( dbConfig );
         reader.run();
+
 
     }
 }

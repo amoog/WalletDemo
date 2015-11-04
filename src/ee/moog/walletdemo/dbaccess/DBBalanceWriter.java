@@ -1,10 +1,9 @@
 package ee.moog.walletdemo.dbaccess;
 
-import ee.moog.walletdemo.BalanceInfo;
+import ee.moog.walletdemo.pojo.BalanceInfo;
 import ee.moog.walletdemo.internalcommands.StopCommand;
 
 import java.sql.*;
-import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.concurrent.LinkedBlockingQueue;
@@ -12,7 +11,7 @@ import java.util.concurrent.LinkedBlockingQueue;
 /**
  *
  */
-public class DBWriter implements Runnable {
+public class DBBalanceWriter implements Runnable {
     private DBConfig dbConfig;
     private Connection conn;
 
@@ -22,7 +21,7 @@ public class DBWriter implements Runnable {
     private PreparedStatement insertStatement;
     private LinkedBlockingQueue<Object> requestQueue;
 
-    public DBWriter( DBConfig config ) throws SQLException {
+    public DBBalanceWriter(DBConfig config ) throws SQLException {
         dbConfig = config;
 
         requestQueue = new LinkedBlockingQueue<>();
