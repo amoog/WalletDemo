@@ -27,7 +27,7 @@ public class ConstantParameters {
         dbUser = prop.getProperty( "db_user", "" );
         dbPassword = prop.getProperty( "db_password", "" );
         logDirectory = prop.getProperty( "log_directory" );
-        enableDebugLog = prop.getProperty( "enable_debug_log", "0" ) == "1";
+        enableDebugLog = prop.getProperty( "enable_debug_log", "0" ).equals( "1" );
         listenPort = Integer.parseInt( prop.getProperty( "listen_port" ));
 
 

@@ -77,7 +77,10 @@ public class WalletInMemDb implements  Runnable {
                 }
 
                 Command command;
-                command = requestQueue.poll(HardcodedParameters.REGULAR_ACTIONS_DELAY, TimeUnit.MILLISECONDS );
+                if( pendingReads.size() == 0 ) // no more pending reads
+                    command = requestQueue.poll(HardcodedParameters.REGULAR_ACTIONS_DELAY, TimeUnit.MILLISECONDS );
+                else
+                    command = requestQueue.poll(HardcodedParameters.MINIMUM_POLL_WAIT, TimeUnit.MILLISECONDS );
 
                 doRegularActions();
 
