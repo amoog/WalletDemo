@@ -9,4 +9,10 @@ public class HardcodedParameters {
     public static final int REGULAR_ACTIONS_DELAY=1000; // in milliseconds
 
     public static final int MAX_OPEN_REQUESTS_PER_SOCKET = 1000;
+
+    public static final int LOGGER_FLUSH_INTERVAL = 200; // in millseconds
+
+    public static final int DBWRITER_JOIN_WAIT_TIMEOUT = 10000; // time to wait for db writer thread to terminate
+    // memdb wait should be larger that dbwriter wait
+    public static final int MEMDB_JOIN_WAIT_TIMEOUT = 15000; // time to wait for memdb thread to terminate
 }

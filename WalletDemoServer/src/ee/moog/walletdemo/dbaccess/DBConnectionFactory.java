@@ -11,13 +11,19 @@ import java.sql.SQLException;
 /**
  *
  */
-public class DBConfig {
-
-    public Connection getConnection() throws ClassNotFoundException, SQLException {
+public class DBConnectionFactory {
+    public DBConnectionFactory() throws ClassNotFoundException {
+        // make sure driver is available
         Class.forName("org.hsqldb.jdbc.JDBCDriver");
+    }
 
+    public Connection getConnection() throws SQLException {
         JDBCDataSource dataSource = new JDBCDataSource();
         dataSource.setUrl(ConstantParameters.getDburl() );
+        if( ConstantParameters.getDbUser().length() > 0 )
+            dataSource.setUser( ConstantParameters.getDbUser() );
+        if( ConstantParameters.getDbPassword().length() > 0 )
+            dataSource.setPassword( ConstantParameters.getDbPassword() );
         JDBCConnection connection = (JDBCConnection) dataSource.getConnection();
         return connection;
     }

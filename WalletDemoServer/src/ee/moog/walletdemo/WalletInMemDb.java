@@ -1,9 +1,12 @@
 package ee.moog.walletdemo;
 
+import com.sun.corba.se.impl.orbutil.closure.Constant;
+import com.sun.xml.internal.bind.v2.runtime.reflect.opt.Const;
 import ee.moog.walletdemo.dbaccess.DBBalanceReader;
 import ee.moog.walletdemo.dbaccess.DBBalanceWriter;
-import ee.moog.walletdemo.dbaccess.DBConfig;
+import ee.moog.walletdemo.dbaccess.DBConnectionFactory;
 import ee.moog.walletdemo.internalcommands.*;
+import ee.moog.walletdemo.parameters.ConstantParameters;
 import ee.moog.walletdemo.parameters.HardcodedParameters;
 import ee.moog.walletdemo.pojo.BalanceInfo;
 import ee.moog.walletdemo.pojo.BlackListItem;
@@ -17,13 +20,21 @@ import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
 
 /**
- *
+ * Central class holding balance information.
+ * It retrieves requests and commands via requestQueue and returns responses to queues provided in
+ * BalanceQuery objects.
+ * Main logic is in the run() method
  */
 public class WalletInMemDb implements  Runnable {
-    Thread memDbThread = null;
+    private static final String TAG = "WIMDB";
+    // thread main response loop runs in
+    private Thread memDbThread = null;
 
     private DBBalanceReader dbReader;
+    private Thread dbReaderThread;
+
     private DBBalanceWriter dbWriter;
+    private Thread dbWriterThread;
 
     private LinkedBlockingQueue<Command> requestQueue;
 
@@ -40,24 +51,28 @@ public class WalletInMemDb implements  Runnable {
     private HashMap<String,BlackListItem> blacklist = null;
     private int changeLimit = 0;
 
+
     private boolean stopping = false;
-    private boolean closeReader = false;
-    private boolean closeWriter = false;
     private long lastWrite;
 
-    // private TCPWriter tcpwriter;
-    private WalletInMemDb() {} // only builder can build this
+    private WalletInMemDb() {} // private constructor so only builder can build this
 
     @Override
     public void run() {
         lastWrite = System.currentTimeMillis();
         while( true ) {
             try {
-                // first check for response from reader
+                // first check for response from db reader
+                // always read all responses, as we are the only one sending read requests
+                // there can never be too many responses coming in
                 while( true ) {
                     BalanceInfo readerResponse = dbReader.getResultQueue().poll();
                     if( readerResponse == null )
                         break;
+                    if(ConstantParameters.getEnableDebugLog())
+                        WLog.d( TAG, "DB response USER: " + readerResponse.getUsername() +
+                                " VERSION: " + readerResponse.getBalance_version() +
+                                " BALANCE: " + readerResponse.getBalance() );
                     handleReaderResponse( readerResponse );
                 }
 
@@ -81,21 +96,23 @@ public class WalletInMemDb implements  Runnable {
                     }
 
                 }
-            } catch (InterruptedException e) {
-                Panic.panic( e );
+            } catch ( Throwable e) {
+                Panic.panic( "WalletInMemDb unexpected error", e );
             }
         }
     }
 
-    public void start() {
+    public Thread start() {
         memDbThread = new Thread( this );
         memDbThread.start();
-        if( closeReader ) {
-            new Thread( dbReader ).start();
-        }
-        if( closeWriter ) {
-            new Thread( dbWriter ).start();
-        }
+
+        dbReaderThread = new Thread( dbReader );
+        dbWriterThread = new Thread( dbWriter );
+
+        dbReaderThread.start();
+        dbWriterThread.start();
+
+        return memDbThread;
     }
 
     public void stop() {
@@ -105,10 +122,14 @@ public class WalletInMemDb implements  Runnable {
     private void doRegularActions() {
         long currentTime = System.currentTimeMillis();
         if( lastWrite + HardcodedParameters.REGULAR_ACTIONS_DELAY < currentTime ) {
-            dbWriter.saveChanges(pendingWrites);
-            pendingWrites = new HashMap<>();
+            doPendingWrites();
             lastWrite = currentTime;
         }
+    }
+
+    private void doPendingWrites() {
+        dbWriter.saveChanges(pendingWrites);
+        pendingWrites = new HashMap<>();
     }
 
     private void bufferWrite( BalanceInfo infoToBuffer ) {
@@ -125,16 +146,23 @@ public class WalletInMemDb implements  Runnable {
                 handleIncomingRequest( query, false );
     }
 
+    // readnotpending = false means that we have already read this from db
     private void handleIncomingRequest( BalanceQuery incomingRequest, boolean readNotPending ) {
+        if(ConstantParameters.getEnableDebugLog())
+            WLog.d( TAG, "BalanceRequest USER: " + incomingRequest.getUsername() +
+                    " ID: " + incomingRequest.getTransaction_id() +
+                    " CHANGE: " + incomingRequest.getBalanceChange() );
+
         BalanceResponse response = null;
         // check if we have lately processed this request
         response = checkRecentResponses(incomingRequest);
 
         if (response == null)
+            // check limit and blacklist
             response = checkRequest(incomingRequest); // this must be after recents check, as blacklist and limit can change
 
         if (response == null) {
-            if( !readNotPending && handlePendingReadSituation(incomingRequest))
+            if( !readNotPending && waitForPendingRead(incomingRequest))
                 return;  // nothing to send yet, will send on next try
 
             // get from memory
@@ -152,6 +180,13 @@ public class WalletInMemDb implements  Runnable {
         }
 
         // send response
+        if(ConstantParameters.getEnableDebugLog())
+            WLog.d( TAG, "Response CODE: " + response.getErrorCode() +
+                    "USER: " + response.getUserName() +
+                    " ID: " + response.getTransactionId() +
+                    " VERSION: " + response.getBalanceVersion() +
+                    " BALANCE: " + response.getBalanceAfter() );
+
         incomingRequest.getResponseQueue().add( response );
     }
 
@@ -187,7 +222,7 @@ public class WalletInMemDb implements  Runnable {
                 errorCode, 0, incomingRequest.getBalanceChange(), 0 );
     }
 
-    private boolean handlePendingReadSituation(BalanceQuery incomingRequest) {
+    private boolean waitForPendingRead(BalanceQuery incomingRequest) {
         List<BalanceQuery> pendingRequests = pendingReads.get( incomingRequest.getUsername() );
         if( pendingRequests == null )
             return false;
@@ -242,6 +277,17 @@ public class WalletInMemDb implements  Runnable {
 
     private void handleStop() {
         stopping = true;
+        dbReader.stop();
+
+        doPendingWrites();
+
+        dbWriter.stop();
+        // we have to wait for dbWriter to finish writing all changes!
+        try {
+            dbWriterThread.join( HardcodedParameters.DBWRITER_JOIN_WAIT_TIMEOUT );
+        } catch (InterruptedException e) {
+            e.printStackTrace();
+        }
     }
 
     public LinkedBlockingQueue<Command> getRequestQueue() {
@@ -249,27 +295,16 @@ public class WalletInMemDb implements  Runnable {
     }
 
     public static class Builder {
-        private DBConfig init_dbConfig;
-        private DBBalanceReader init_dbReader = null;
-        private DBBalanceWriter init_dbWriter = null;
+        private DBConnectionFactory init_dbConnectionFactory;
 
         private HashMap<String,BlackListItem> init_blacklist = null;
         private int init_changeLimit = Integer.MAX_VALUE;
 
-        public Builder setDbConfig(DBConfig config ) {
-            init_dbConfig = config;
+        public Builder setDbConfig(DBConnectionFactory config ) {
+            init_dbConnectionFactory = config;
             return this;
         }
 
-        public Builder setDBReader(DBBalanceReader reader ) {
-            init_dbReader = reader;
-            return this;
-        }
-
-        public Builder setDBWriter(DBBalanceWriter writer ) {
-            init_dbWriter = writer;
-            return this;
-        }
         public Builder setBlacklist(HashMap<String, BlackListItem> blacklist ) {
             init_blacklist = blacklist;
             return this;
@@ -282,18 +317,8 @@ public class WalletInMemDb implements  Runnable {
         public WalletInMemDb build() throws SQLException, ClassNotFoundException {
             WalletInMemDb result = new WalletInMemDb();
 
-            if( init_dbReader == null ) {
-                result.dbReader = new DBBalanceReader(init_dbConfig);
-                result.closeReader = true;
-            }
-            else
-                result.dbReader = init_dbReader;
-            if( init_dbWriter == null ) {
-                result.dbWriter = new DBBalanceWriter(init_dbConfig);
-                result.closeWriter = true;
-            }
-            else
-                result.dbWriter = init_dbWriter;
+            result.dbReader = new DBBalanceReader(init_dbConnectionFactory);
+            result.dbWriter = new DBBalanceWriter(init_dbConnectionFactory);
 
             // this MUST be created internally because it can not be shared - memory db is also not shared!
             result.requestQueue = new LinkedBlockingQueue<>();

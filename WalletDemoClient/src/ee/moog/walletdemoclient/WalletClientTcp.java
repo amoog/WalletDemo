@@ -59,6 +59,7 @@ public class WalletClientTcp {
                     }
 
                     WalletResponse response = Protocol.parseResponse( inputBuffer );
+                    randomRequest.checkResponse( response );
                     received.getAndIncrement();
                 }
             } catch ( Throwable e) {

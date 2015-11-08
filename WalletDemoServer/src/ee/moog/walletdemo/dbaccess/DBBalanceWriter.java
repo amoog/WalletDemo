@@ -1,18 +1,18 @@
 package ee.moog.walletdemo.dbaccess;
 
+import ee.moog.walletdemo.Panic;
 import ee.moog.walletdemo.pojo.BalanceInfo;
 import ee.moog.walletdemo.internalcommands.StopCommand;
 
 import java.sql.*;
 import java.util.HashMap;
-import java.util.List;
 import java.util.concurrent.LinkedBlockingQueue;
 
 /**
  *
  */
 public class DBBalanceWriter implements Runnable {
-    private DBConfig dbConfig;
+    private DBConnectionFactory dbConnectionFactory;
     private Connection conn;
 
 
@@ -21,8 +21,8 @@ public class DBBalanceWriter implements Runnable {
     private PreparedStatement insertStatement;
     private LinkedBlockingQueue<Object> requestQueue;
 
-    public DBBalanceWriter(DBConfig config ) throws SQLException, ClassNotFoundException {
-        dbConfig = config;
+    public DBBalanceWriter(DBConnectionFactory config ) throws SQLException, ClassNotFoundException {
+        dbConnectionFactory = config;
 
         requestQueue = new LinkedBlockingQueue<>();
 
@@ -30,7 +30,7 @@ public class DBBalanceWriter implements Runnable {
     }
 
     private void prepareStatements() throws SQLException, ClassNotFoundException {
-        conn = dbConfig.getConnection();
+        conn = dbConnectionFactory.getConnection();
 
         updateStatement = conn.prepareStatement("UPDATE PLAYER SET BALANCE_VERSION=?, BALANCE=? WHERE USERNAME=? AND BALANCE_VERSION < ?");
         readStatement = conn.prepareStatement("SELECT BALANCE_VERSION FROM PLAYER WHERE USERNAME=?");
@@ -81,14 +81,8 @@ public class DBBalanceWriter implements Runnable {
     }
 
     private void saveBalanceChanges( HashMap<String, BalanceInfo> balanceInfoList ) throws SQLException {
-        HashMap<String,BalanceInfo> aggregate = new HashMap<>();
-        for( BalanceInfo balanceInfo : balanceInfoList.values() ) {
-            BalanceInfo lastInfo = aggregate.get(balanceInfo.getUsername());
-            if( lastInfo == null || lastInfo.getBalance_version() < balanceInfo.getBalance_version() )
-                aggregate.put( balanceInfo.getUsername(), balanceInfo );
-        }
-        while( true ) {
-            for( BalanceInfo savingInfo : aggregate.values() ) {
+         while( true ) {
+            for( BalanceInfo savingInfo : balanceInfoList.values() ) {
                 if( !saveBalanceInfo( savingInfo ) ) {
                     conn.rollback();
                     continue; // try again
@@ -108,20 +102,23 @@ public class DBBalanceWriter implements Runnable {
 
     @Override
     public void run() {
-        while (true) {
+        try {
             try {
-                Object command = requestQueue.take();
-                if (command instanceof HashMap) {
-                    saveBalanceChanges((HashMap<String,BalanceInfo>) command);
-                } else {// must be stop
-                    break;
+                while (true) {
+                    Object command = requestQueue.take();
+                    if (command instanceof HashMap) {
+                        saveBalanceChanges((HashMap<String, BalanceInfo>) command);
+                    } else {// must be stop
+                        break;
+                    }
                 }
-            } catch (InterruptedException e) {
-                e.printStackTrace();
-                return;
-            } catch (SQLException e) {
-                e.printStackTrace();
             }
+            finally {
+                conn.close();
+            }
+        } catch ( Throwable e) {
+            Panic.panic( "DBBalanceWriter unexpected error", e );
+            return;
         }
     }
 }

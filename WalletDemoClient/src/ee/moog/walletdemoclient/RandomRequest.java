@@ -11,12 +11,14 @@ import java.util.concurrent.ThreadLocalRandom;
  */
 public class RandomRequest {
     public int clientCount = 10000;
+    public int maxChange = 10000;
 
     private int reqNo = 0;
     public WalletRequest generateRequest() {
         int current = ThreadLocalRandom.current().nextInt( clientCount );
         String userName = Integer.toString( current );
-        WalletRequest request = new WalletRequest( userName, Integer.toString( reqNo++ ), 100 );
+        int amount = ThreadLocalRandom.current().nextInt( maxChange ) - maxChange / 2;
+        WalletRequest request = new WalletRequest( userName, Integer.toString( reqNo++ ), amount );
 
         return request;
     }

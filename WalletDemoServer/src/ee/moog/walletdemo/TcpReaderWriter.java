@@ -12,18 +12,16 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.Socket;
-import java.net.SocketException;
-import java.nio.channels.Channel;
-import java.nio.channels.SocketChannel;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicInteger;
 
 public class TcpReaderWriter {
+    private static final String TAG = "TCP";
     private Socket socket;
     private BlockingQueue<Command> commandQueue;
+    private WalletServer walletServer;
 
     private LinkedBlockingQueue<Command> responseQueue;
 
@@ -36,9 +34,10 @@ public class TcpReaderWriter {
     private Thread writerThread;
 
     private AtomicBoolean finished;
-    public TcpReaderWriter(Socket socket, BlockingQueue<Command> commandQueue ) {
+    public TcpReaderWriter(Socket socket, BlockingQueue<Command> commandQueue, WalletServer walletServer) {
         this.socket = socket;
         this.commandQueue = commandQueue;
+        this.walletServer = walletServer;
 
         finished = new AtomicBoolean( false );
 
@@ -50,7 +49,6 @@ public class TcpReaderWriter {
 
         readerThread = new Thread( reader );
         writerThread = new Thread( writer );
-
     }
 
     public void start() {
@@ -58,7 +56,7 @@ public class TcpReaderWriter {
         writerThread.start();
     }
 
-    private void finishReaderWriter() {
+    public void stop( boolean removeFromServer ) {
         if( finished.compareAndSet( false, true ) ) { // finish only once
             if (!socket.isClosed())
                 try {
@@ -66,6 +64,8 @@ public class TcpReaderWriter {
                 } catch (IOException e) {
                     e.printStackTrace();
                 }
+            if( removeFromServer )
+                walletServer.removeReaderWriter( this );
         }
     }
 
@@ -87,6 +87,8 @@ public class TcpReaderWriter {
                     }
 
                     WalletRequest request = Protocol.parseRequest( inputBuffer );
+                    WLog.l( TAG, "ID: " + request.getTransactionId() + " IN " + request.getUserName() + " " +
+                            request.getBalanceChange() );
 
                     BalanceQuery query = new BalanceQuery( request.getUserName(), request.getTransactionId(),
                             request.getBalanceChange(), responseQueue );
@@ -97,10 +99,10 @@ public class TcpReaderWriter {
                 }
             } catch ( Throwable e) {
                 if( !socket.isClosed() )
-                    Logger.l( "TcpReader", "Reading terminated by exception:" + e.getClass().getName() + ':' +
+                    WLog.d( "TcpReader", "Reading terminated by exception:" + e.getClass().getName() + ':' +
                         e.getMessage());
             }
-            finishReaderWriter();
+            stop( true );
         }
     }
 
@@ -120,23 +122,24 @@ public class TcpReaderWriter {
                                 balanceResponse.getBalanceChange(), balanceResponse.getBalanceAfter() );
 
                         Protocol.writeResponse( responseBuffer, walletResponse );
-
                         outputStream.write( responseBuffer );
+
+                        WLog.l( TAG, "ID: " + walletResponse.getTransactionId() + " " + walletResponse.getErrorCode() +
+                                " OUT " + balanceResponse.getUserName() + " " + walletResponse.getBalanceAfter() );
 
                         requestLimiter.release();
                     }
                     else { // assume it is stop
-                        finishReaderWriter();
-                        return;
+                        break;
                     }
 
                 }
             } catch ( Throwable e ) {
                 if( !socket.isClosed() )
-                    Logger.l( "TcpWriter", "Writing terminated by exception:" + e.getClass().getName() + ':' +
+                    WLog.d( "TcpWriter", "Writing terminated by exception:" + e.getClass().getName() + ':' +
                         e.getMessage());
             }
-            finishReaderWriter();
+            stop( true );
         }
     }
 

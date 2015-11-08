@@ -16,7 +16,7 @@ import java.util.concurrent.LinkedBlockingQueue;
  *
  */
 public class DBBalanceReader implements Runnable {
-    private DBConfig dbConfig;
+    private DBConnectionFactory dbConnectionFactory;
     private Connection conn;
 
     private PreparedStatement readStatement;
@@ -24,8 +24,8 @@ public class DBBalanceReader implements Runnable {
     private LinkedBlockingQueue<Command> requestQueue;
     private ConcurrentLinkedQueue<BalanceInfo> resultQueue;
 
-    public DBBalanceReader(DBConfig config) throws SQLException, ClassNotFoundException {
-        dbConfig = config;
+    public DBBalanceReader(DBConnectionFactory config) throws SQLException, ClassNotFoundException {
+        dbConnectionFactory = config;
 
         requestQueue = new LinkedBlockingQueue<>();
         resultQueue = new ConcurrentLinkedQueue<>();
@@ -34,7 +34,7 @@ public class DBBalanceReader implements Runnable {
     }
 
     private void prepareStatements() throws SQLException, ClassNotFoundException {
-        conn = dbConfig.getConnection();
+        conn = dbConnectionFactory.getConnection();
         readStatement = conn.prepareStatement("SELECT BALANCE_VERSION, BALANCE FROM PLAYER WHERE USERNAME=?");
     }
 
@@ -51,7 +51,7 @@ public class DBBalanceReader implements Runnable {
         ResultSet rs = readStatement.executeQuery();
         try {
             if (!rs.next())
-                return new BalanceInfo(username, -1, -1);
+                return new BalanceInfo(username, 0, 0);
             int balance_version = rs.getInt(1);
             long balance = rs.getLong(2);
             return new BalanceInfo( username, balance_version, balance );
@@ -63,23 +63,28 @@ public class DBBalanceReader implements Runnable {
 
     @Override
     public void run() {
-        while( true ) {
+        try {
             try {
-                Command command = requestQueue.take();
-                if( command instanceof BalanceDbQuery) {
-                    BalanceInfo result = readBalanceInfo( ((BalanceDbQuery) command).getUserName() );
-                    resultQueue.offer(result);
-                }
-                else
-                    if( command instanceof StopCommand )
+                while (true) {
+                    Command command = requestQueue.take();
+                    if (command instanceof BalanceDbQuery) {
+                        BalanceInfo result = readBalanceInfo(((BalanceDbQuery) command).getUserName());
+                        resultQueue.offer(result);
+                    } else {// assume stop
                         break;
-                    else
-                        Panic.panic( null );
-
-            } catch (InterruptedException | SQLException e) {
-                // there are probably ways to handle db failures better, but for now just panic
-                Panic.panic( e );
+                    }
+                }
             }
+            finally {
+                conn.close();
+            }
+        } catch ( Throwable e ) {
+            // there are probably ways to handle db failures better, but for now just panic
+            Panic.panic( "DBBalanceReader unexpected error", e );
         }
+    }
+
+    public void stop() {
+        requestQueue.offer( new StopCommand() );
     }
 }

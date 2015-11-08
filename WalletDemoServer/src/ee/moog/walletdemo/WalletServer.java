@@ -5,6 +5,8 @@ import org.hsqldb.Server;
 import java.io.IOException;
 import java.net.ServerSocket;
 import java.net.Socket;
+import java.util.HashSet;
+import java.util.Iterator;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
@@ -19,6 +21,8 @@ public class WalletServer implements Runnable {
 
     private AtomicBoolean stopped = new AtomicBoolean( false );
 
+    private HashSet<TcpReaderWriter> readerWriters = new HashSet<>();
+
     public WalletServer setInmemBb( WalletInMemDb db ) {
         walletInMemDb = db;
         return this;
@@ -29,13 +33,35 @@ public class WalletServer implements Runnable {
         return this;
     }
 
+    private void addReaderWriter( TcpReaderWriter readerWriter ) {
+        synchronized ( readerWriters ) {
+            readerWriters.add( readerWriter );
+        }
+    }
+
+    public void removeReaderWriter( TcpReaderWriter readerWriter ) {
+        synchronized ( readerWriters ) {
+            readerWriters.remove( readerWriter );
+        }
+    }
+
+    private void stopReaderWriters() {
+        synchronized ( readerWriters ) {
+            Iterator<TcpReaderWriter> it = readerWriters.iterator();
+            while( it.hasNext() ) {
+                TcpReaderWriter current = it.next();
+                current.stop( false ); // removing from set is no longer necessary
+            }
+        }
+    }
+
     @Override
     public void run() {
         try {
             while( true ) {
                 Socket conn = listening_socket.accept();
-                TcpReaderWriter readerWriter = new TcpReaderWriter( conn, walletInMemDb.getRequestQueue() );
-
+                TcpReaderWriter readerWriter = new TcpReaderWriter( conn, walletInMemDb.getRequestQueue(), this );
+                addReaderWriter( readerWriter );
                 readerWriter.start();
             }
         } catch (Throwable e) {
@@ -58,8 +84,7 @@ public class WalletServer implements Runnable {
                 } catch (IOException e) {
                     e.printStackTrace();
                 }
-            // tell children to stop reading
-            // wait for children to close
+            stopReaderWriters();
         }
 
     }
